@@ -1,0 +1,60 @@
+name: Get Bicep Modules
+description: Gets list of Bicep modules. It will only output modules where the 'version.json' is modified.
+
+inputs:
+  root-path:
+    description: The root path for the modules.
+    required: true
+
+  module-name:
+    description: "The name of the module. This should include the full relative path below the root-path, not including any leading or trailing '/'. Example: 'subnet' or 'modules/subnet'."
+    required: false
+
+outputs:
+  module-names:
+    description: A list of module names. Relative to the input root-path.
+    value: ${{ steps.get-module-names.outputs.module-names }}
+
+runs:
+  using: composite
+  steps:
+    - name: Get Changed Files
+      id: changed-files
+      uses: tj-actions/changed-files@v44
+      with:
+        json: true
+        escape_json: false
+        files: ${{ inputs.root-path }}/**/version.json
+        separator: "|"
+
+    - name: Get module names
+      shell: pwsh
+      id: get-module-names
+      env:
+        rootPath: ${{ inputs.root-path }}
+        moduleName: ${{ inputs.module-name }}
+        changedFiles: ${{ steps.changed-files.outputs.all_changed_files }}
+      run: |
+        #* Get module names
+
+        $moduleNames = @()
+        if ($env:moduleName -and $env:moduleName -ne '') {
+          $moduleNames += $env:moduleName
+        }
+        else {
+          $changedFiles = $env:changedFiles | ConvertFrom-Json
+
+          foreach ($changedFile in $changedFiles) {
+            $item = Get-Item $changedFile
+            Push-Location $env:rootPath
+            $moduleRelativePath = Resolve-Path -Relative $item.Directory.FullName
+            $moduleNames += $moduleRelativePath.Trim(".").Trim("/")
+            Pop-Location
+          }
+        }
+
+        #* Ensure well formed json array
+        $json = , $moduleNames | ConvertTo-Json -Compress
+
+        #* Write outputs
+        Write-Output "module-names=$json" >> $env:GITHUB_OUTPUT
